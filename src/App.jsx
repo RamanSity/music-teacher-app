@@ -119,11 +119,16 @@ function Avatar({ name, color }) {
   );
 }
 
-function StatCard({ icon: Icon, label, value, accent }) {
+function StatCard({ icon: Icon, label, value, accent, onClick }) {
   return (
     <div
+      onClick={onClick}
       className="flex items-center gap-3 rounded-2xl p-4 flex-1 min-w-[140px]"
-      style={{ background: TOKENS.surface, border: `1px solid ${TOKENS.line}` }}
+      style={{
+        background: TOKENS.surface,
+        border: `1px solid ${TOKENS.line}`,
+        cursor: onClick ? "pointer" : "default",
+      }}
     >
       <div className="rounded-full p-2.5" style={{ background: accent + "22" }}>
         <Icon size={20} color={accent} />
@@ -358,6 +363,22 @@ export default function MusicTeacherApp() {
   }, [students, rangeDays]);
 
   const unpaidCount = students.filter((s) => !s.paid).length;
+  const unpaidDetails = useMemo(() => {
+    return students
+      .filter((s) => !s.paid)
+      .map((s) => {
+        const pastSlots = (s.slots || [])
+          .filter((sl) => sl.date <= tKey)
+          .sort((a, b) => (b.date + b.time).localeCompare(a.date + a.time));
+        return {
+          student: s,
+          lastLessonDate: pastSlots[0] ? pastSlots[0].date : null,
+          overdueLessons: pastSlots.length,
+        };
+      })
+      .sort((a, b) => (a.lastLessonDate || "9999").localeCompare(b.lastLessonDate || "9999"));
+  }, [students, tKey]);
+  const [showUnpaid, setShowUnpaid] = useState(false);
   const palette = [TOKENS.gold, TOKENS.sage, TOKENS.rust, TOKENS.goldSoft];
 
   const togglePaid = (id) => {
@@ -417,6 +438,55 @@ export default function MusicTeacherApp() {
         </div>
       )}
 
+      {showUnpaid && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "#2B2118AA" }}>
+          <div className="w-full max-w-sm rounded-3xl p-6 max-h-[85vh] overflow-y-auto" style={{ background: TOKENS.surface, fontFamily: "Tajawal" }}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold" style={{ color: TOKENS.ink }}>
+                الدفعات المعلقة ({unpaidDetails.length})
+              </h3>
+              <button onClick={() => setShowUnpaid(false)} className="rounded-full p-1.5" style={{ background: TOKENS.surfaceAlt }}>
+                <X size={16} color={TOKENS.ink} />
+              </button>
+            </div>
+            {unpaidDetails.length === 0 ? (
+              <div className="text-center py-8 text-sm" style={{ color: TOKENS.inkSoft }}>
+                ولا دفعة معلقة 🎉
+              </div>
+            ) : (
+              <div className="flex flex-col gap-2">
+                {unpaidDetails.map(({ student, lastLessonDate, overdueLessons }) => (
+                  <div key={student.id} className="rounded-2xl p-3" style={{ background: TOKENS.bg }}>
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-sm" style={{ color: TOKENS.ink }}>
+                        {student.name}
+                      </span>
+                      <button
+                        onClick={() => togglePaid(student.id)}
+                        className="flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-bold"
+                        style={{ background: TOKENS.sage + "22", color: TOKENS.sage }}
+                      >
+                        <Check size={11} />
+                        تسجيل الدفع
+                      </button>
+                    </div>
+                    <div className="text-xs mt-1" style={{ color: TOKENS.inkSoft }}>
+                      {lastLessonDate
+                        ? `آخر درس: ${formatArabicDate(parseDate(lastLessonDate))} · ${overdueLessons} درس معلق`
+                        : "ما في دروس سابقة بعد"}
+                    </div>
+                    <div className="flex items-center gap-1 text-xs mt-1" style={{ color: TOKENS.inkSoft }} dir="ltr">
+                      <Phone size={11} />
+                      {student.phone}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       <header className="px-5 pt-6 pb-4 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="rounded-2xl p-2.5" style={{ background: TOKENS.ink }}>
@@ -469,13 +539,13 @@ export default function MusicTeacherApp() {
             <div className="flex gap-3 flex-wrap">
               <StatCard icon={Users} label="إجمالي الطلاب" value={students.length} accent={TOKENS.gold} />
               <StatCard icon={CalendarDays} label="دروس اليوم" value={todaysLessons.length} accent={TOKENS.sage} />
-              <StatCard icon={Wallet} label="دفعات معلقة" value={unpaidCount} accent={TOKENS.rust} />
+              <StatCard icon={Wallet} label="دفعات معلقة" value={unpaidCount} accent={TOKENS.rust} onClick={() => setShowUnpaid(true)} />
             </div>
 
             <div className="rounded-3xl p-5" style={{ background: TOKENS.surface, border: `1px solid ${TOKENS.line}` }}>
               <div className="flex items-center justify-between mb-4">
                 <h2 className="font-extrabold" style={{ color: TOKENS.ink, fontFamily: "Markazi Text", fontSize: 22 }}>
-                  دروس اليوم على النوتة
+                  دروس اليوم
                 </h2>
                 <span className="text-xs" style={{ color: TOKENS.inkSoft }}>
                   9:00 ← 19:00
