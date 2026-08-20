@@ -17,11 +17,19 @@ const TOKENS = {
 };
 
 const INSTRUMENTS = ["بيانو", "غيتار", "عود", "كمان", "درامز"];
-// dayOrder[0] = الأحد يطابق JS Date.getDay() === 0، وهكذا لبقية الأيام
-const dayOrder = ["الأحد", "الإثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"];
+const dayNames = ["الأحد", "الإثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"];
+const arabicMonths = ["يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو", "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"];
 
 let slotIdCounter = 1000;
 const newSlotId = () => slotIdCounter++;
+
+// يبني تاريخ نسبي لعدد أيام معين من اليوم — يُستخدم بس لتوليد بيانات تجريبية واقعية
+function relDate(daysFromNow) {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() + daysFromNow);
+  return d.toISOString().slice(0, 10);
+}
 
 const initialStudents = [
   {
@@ -32,8 +40,11 @@ const initialStudents = [
     paid: true,
     note: "وصلت لصفحة 12، تحتاج تتمرن على السلم الكبير",
     slots: [
-      { id: newSlotId(), day: "الإثنين", time: "16:00" },
-      { id: newSlotId(), day: "الخميس", time: "17:00" },
+      { id: newSlotId(), date: relDate(1), time: "16:00" },
+      { id: newSlotId(), date: relDate(8), time: "16:00" },
+      { id: newSlotId(), date: relDate(15), time: "16:00" },
+      { id: newSlotId(), date: relDate(22), time: "16:00" },
+      { id: newSlotId(), date: relDate(45), time: "16:00" },
     ],
   },
   {
@@ -43,7 +54,10 @@ const initialStudents = [
     phone: "+49 151 000 002",
     paid: false,
     note: "بدها تحضر أغنية جديدة للحفلة",
-    slots: [{ id: newSlotId(), day: "الثلاثاء", time: "17:30" }],
+    slots: [
+      { id: newSlotId(), date: relDate(2), time: "17:30" },
+      { id: newSlotId(), date: relDate(9), time: "17:30" },
+    ],
   },
   {
     id: 3,
@@ -52,7 +66,7 @@ const initialStudents = [
     phone: "+49 151 000 003",
     paid: true,
     note: "",
-    slots: [{ id: newSlotId(), day: "الأربعاء", time: "18:00" }],
+    slots: [{ id: newSlotId(), date: relDate(0), time: "18:00" }],
   },
   {
     id: 4,
@@ -61,7 +75,7 @@ const initialStudents = [
     phone: "+49 151 000 004",
     paid: false,
     note: "أول درس، محتاجة تشتري قوس جديد",
-    slots: [{ id: newSlotId(), day: "الخميس", time: "16:30" }],
+    slots: [{ id: newSlotId(), date: relDate(3), time: "16:30" }],
   },
 ];
 
@@ -72,35 +86,15 @@ function timeToY(time) {
   return 12 + (clamped / 600) * 176;
 }
 
-// يحول تاريخ إلى نص عربي مقروء: "الأحد، 24 أغسطس"
-const arabicMonths = ["يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو", "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"];
+function parseDate(dateStr) {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  return new Date(y, m - 1, d);
+}
 function formatArabicDate(date) {
-  const dayName = dayOrder[date.getDay()];
-  return `${dayName}، ${date.getDate()} ${arabicMonths[date.getMonth()]}`;
+  return `${dayNames[date.getDay()]}، ${date.getDate()} ${arabicMonths[date.getMonth()]}`;
 }
-function dateKey(date) {
-  return date.toISOString().slice(0, 10);
-}
-
-// يولّد كل الدروس القادمة الحقيقية (بتواريخ فعلية) خلال عدد أيام محدد، بناءً على الأيام الأسبوعية المتكررة لكل طالب
-function generateUpcomingLessons(students, daysAhead) {
-  const result = [];
-  const start = new Date();
-  start.setHours(0, 0, 0, 0);
-  for (let i = 0; i < daysAhead; i++) {
-    const date = new Date(start);
-    date.setDate(start.getDate() + i);
-    const weekday = dayOrder[date.getDay()];
-    students.forEach((s) => {
-      (s.slots || []).forEach((slot) => {
-        if (slot.day === weekday) {
-          result.push({ date, student: s, slot });
-        }
-      });
-    });
-  }
-  result.sort((a, b) => a.date - b.date || a.slot.time.localeCompare(b.slot.time));
-  return result;
+function todayKey() {
+  return new Date().toISOString().slice(0, 10);
 }
 
 function StaffLines() {
@@ -146,20 +140,17 @@ function StatCard({ icon: Icon, label, value, accent }) {
   );
 }
 
-// صف واحد لإدخال يوم + وقت، يُستخدم داخل قائمة المواعيد الأسبوعية للطالب
+// صف إدخال موعد واحد: تاريخ فعلي (مو يوم أسبوعي) + وقت
 function SlotRow({ slot, onChange, onRemove, canRemove }) {
   return (
     <div className="flex items-center gap-2">
-      <select
-        value={slot.day}
-        onChange={(e) => onChange({ ...slot, day: e.target.value })}
+      <input
+        type="date"
+        value={slot.date}
+        onChange={(e) => onChange({ ...slot, date: e.target.value })}
         className="flex-1 rounded-xl px-2 py-2 text-sm outline-none"
         style={{ background: TOKENS.bg, border: `1px solid ${TOKENS.line}`, color: TOKENS.ink }}
-      >
-        {dayOrder.map((d) => (
-          <option key={d}>{d}</option>
-        ))}
-      </select>
+      />
       <input
         type="time"
         value={slot.time}
@@ -178,13 +169,14 @@ function SlotRow({ slot, onChange, onRemove, canRemove }) {
 
 function StudentForm({ initial, onCancel, onSubmit, submitLabel, title }) {
   const [form, setForm] = useState(
-    initial || { name: "", instrument: INSTRUMENTS[0], phone: "", note: "", paid: false, slots: [{ id: newSlotId(), day: dayOrder[1], time: "16:00" }] }
+    initial || { name: "", instrument: INSTRUMENTS[0], phone: "", note: "", paid: false, slots: [{ id: newSlotId(), date: relDate(7), time: "16:00" }] }
   );
+  const [error, setError] = useState("");
 
   const updateSlot = (id, updated) =>
     setForm({ ...form, slots: form.slots.map((sl) => (sl.id === id ? updated : sl)) });
   const removeSlot = (id) => setForm({ ...form, slots: form.slots.filter((sl) => sl.id !== id) });
-  const addSlot = () => setForm({ ...form, slots: [...form.slots, { id: newSlotId(), day: dayOrder[1], time: "16:00" }] });
+  const addSlot = () => setForm({ ...form, slots: [...form.slots, { id: newSlotId(), date: relDate(7), time: "16:00" }] });
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "#2B2118AA" }}>
@@ -244,7 +236,7 @@ function StudentForm({ initial, onCancel, onSubmit, submitLabel, title }) {
           <div>
             <div className="flex items-center justify-between mb-1.5">
               <label className="text-xs" style={{ color: TOKENS.inkSoft }}>
-                المواعيد الأسبوعية (يقدر يكون أكثر من موعد)
+                مواعيد الدروس (تاريخ محدد لكل درس — أضف كم موعد ما بدك)
               </label>
               <button
                 type="button"
@@ -252,7 +244,7 @@ function StudentForm({ initial, onCancel, onSubmit, submitLabel, title }) {
                 className="flex items-center gap-1 text-xs font-bold rounded-full px-2 py-1"
                 style={{ background: TOKENS.gold + "22", color: TOKENS.gold }}
               >
-                <Plus size={12} /> إضافة موعد
+                <Plus size={12} /> إضافة موعد آخر
               </button>
             </div>
             <div className="flex flex-col gap-2">
@@ -282,9 +274,17 @@ function StudentForm({ initial, onCancel, onSubmit, submitLabel, title }) {
             />
           </div>
 
+          {error && (
+            <div className="text-xs rounded-lg px-3 py-2" style={{ background: TOKENS.rust + "22", color: TOKENS.rust }}>
+              {error}
+            </div>
+          )}
+
           <button
             onClick={() => {
-              if (!form.name.trim() || form.slots.length === 0) return;
+              if (!form.name.trim()) return setError("لازم تكتب اسم الطالب");
+              if (form.slots.some((sl) => !sl.date || !sl.time)) return setError("لازم تحدد تاريخ ووقت لكل موعد");
+              setError("");
               onSubmit(form);
             }}
             className="mt-2 rounded-xl py-2.5 font-bold"
@@ -298,7 +298,7 @@ function StudentForm({ initial, onCancel, onSubmit, submitLabel, title }) {
   );
 }
 
-const STORAGE_KEY = "music-studio-students-v2";
+const STORAGE_KEY = "music-studio-students-v3";
 
 function loadStudents() {
   try {
@@ -326,26 +326,36 @@ export default function MusicTeacherApp() {
     }
   };
 
-  const today = dayOrder[new Date().getDay()];
+  const tKey = todayKey();
 
   const todaysLessons = useMemo(() => {
     const list = [];
     students.forEach((s) => (s.slots || []).forEach((slot) => {
-      if (slot.day === today) list.push({ ...slot, student: s });
+      if (slot.date === tKey) list.push({ ...slot, student: s });
     }));
     return list.sort((a, b) => a.time.localeCompare(b.time));
-  }, [students, today]);
+  }, [students, tKey]);
 
-  const upcoming = useMemo(() => generateUpcomingLessons(students, rangeDays), [students, rangeDays]);
   const upcomingByDate = useMemo(() => {
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(start);
+    end.setDate(start.getDate() + rangeDays);
+
+    const flat = [];
+    students.forEach((s) => (s.slots || []).forEach((slot) => {
+      const d = parseDate(slot.date);
+      if (d >= start && d <= end) flat.push({ date: slot.date, time: slot.time, student: s, slot });
+    }));
+    flat.sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
+
     const map = new Map();
-    upcoming.forEach((item) => {
-      const key = dateKey(item.date);
-      if (!map.has(key)) map.set(key, { date: item.date, items: [] });
-      map.get(key).items.push(item);
+    flat.forEach((item) => {
+      if (!map.has(item.date)) map.set(item.date, { date: item.date, items: [] });
+      map.get(item.date).items.push(item);
     });
     return Array.from(map.values());
-  }, [upcoming]);
+  }, [students, rangeDays]);
 
   const unpaidCount = students.filter((s) => !s.paid).length;
   const palette = [TOKENS.gold, TOKENS.sage, TOKENS.rust, TOKENS.goldSoft];
@@ -545,9 +555,9 @@ export default function MusicTeacherApp() {
               </div>
             ) : (
               upcomingByDate.map(({ date, items }) => (
-                <div key={dateKey(date)} className="rounded-2xl p-4" style={{ background: TOKENS.surface, border: `1px solid ${TOKENS.line}` }}>
+                <div key={date} className="rounded-2xl p-4" style={{ background: TOKENS.surface, border: `1px solid ${TOKENS.line}` }}>
                   <div className="font-extrabold text-sm mb-2" style={{ color: TOKENS.ink }}>
-                    {formatArabicDate(date)}
+                    {formatArabicDate(parseDate(date))}
                   </div>
                   <div className="flex flex-col gap-1.5">
                     {items.map((item, idx) => (
@@ -557,7 +567,7 @@ export default function MusicTeacherApp() {
                         style={{ background: TOKENS.bg }}
                       >
                         <span style={{ color: TOKENS.ink }}>
-                          {item.slot.time} — {item.student.name}
+                          {item.time} — {item.student.name}
                         </span>
                         <span className="text-xs" style={{ color: TOKENS.inkSoft }}>
                           {item.student.instrument}
@@ -590,18 +600,27 @@ export default function MusicTeacherApp() {
                     </button>
                   </div>
                   <div className="text-xs mt-0.5" style={{ color: TOKENS.inkSoft }}>
-                    {s.instrument}
+                    {s.instrument} · {(s.slots || []).length} موعد
                   </div>
                   <div className="flex flex-wrap gap-1.5 mt-1.5">
-                    {(s.slots || []).map((slot) => (
-                      <span
-                        key={slot.id}
-                        className="text-xs rounded-full px-2 py-0.5"
-                        style={{ background: TOKENS.bg, color: TOKENS.ink }}
-                      >
-                        {slot.day} {slot.time}
+                    {(s.slots || [])
+                      .slice()
+                      .sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time))
+                      .slice(0, 4)
+                      .map((slot) => (
+                        <span
+                          key={slot.id}
+                          className="text-xs rounded-full px-2 py-0.5"
+                          style={{ background: TOKENS.bg, color: TOKENS.ink }}
+                        >
+                          {parseDate(slot.date).getDate()}/{parseDate(slot.date).getMonth() + 1} · {slot.time}
+                        </span>
+                      ))}
+                    {(s.slots || []).length > 4 && (
+                      <span className="text-xs rounded-full px-2 py-0.5" style={{ background: TOKENS.bg, color: TOKENS.inkSoft }}>
+                        +{s.slots.length - 4}
                       </span>
-                    ))}
+                    )}
                     <button
                       onClick={() => setEditingStudent(s)}
                       className="flex items-center gap-1 rounded-full px-2 py-0.5 text-xs"
