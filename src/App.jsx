@@ -177,11 +177,26 @@ function StudentForm({ initial, onCancel, onSubmit, submitLabel, title }) {
     initial || { name: "", instrument: INSTRUMENTS[0], phone: "", note: "", paid: false, slots: [{ id: newSlotId(), date: relDate(7), time: "16:00" }] }
   );
   const [error, setError] = useState("");
+  const [recurStart, setRecurStart] = useState(relDate(7));
+  const [recurTime, setRecurTime] = useState("16:00");
+  const [recurCount, setRecurCount] = useState(8);
+  const [recurWeeks, setRecurWeeks] = useState(1);
 
   const updateSlot = (id, updated) =>
     setForm({ ...form, slots: form.slots.map((sl) => (sl.id === id ? updated : sl)) });
   const removeSlot = (id) => setForm({ ...form, slots: form.slots.filter((sl) => sl.id !== id) });
   const addSlot = () => setForm({ ...form, slots: [...form.slots, { id: newSlotId(), date: relDate(7), time: "16:00" }] });
+
+  const generateRecurring = () => {
+    const base = parseDate(recurStart);
+    const newSlots = [];
+    for (let i = 0; i < recurCount; i++) {
+      const d = new Date(base);
+      d.setDate(base.getDate() + i * 7 * recurWeeks);
+      newSlots.push({ id: newSlotId(), date: d.toISOString().slice(0, 10), time: recurTime });
+    }
+    setForm({ ...form, slots: [...form.slots, ...newSlots] });
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "#2B2118AA" }}>
@@ -236,6 +251,75 @@ function StudentForm({ initial, onCancel, onSubmit, submitLabel, title }) {
                 dir="ltr"
               />
             </div>
+          </div>
+
+          <div className="rounded-2xl p-3" style={{ background: TOKENS.surfaceAlt }}>
+            <div className="text-xs font-bold mb-2" style={{ color: TOKENS.ink }}>
+              ⚡ إضافة مواعيد متكررة بسرعة
+            </div>
+            <div className="grid grid-cols-2 gap-2 mb-2">
+              <div>
+                <label className="text-[10px]" style={{ color: TOKENS.inkSoft }}>
+                  تاريخ أول درس
+                </label>
+                <input
+                  type="date"
+                  value={recurStart}
+                  onChange={(e) => setRecurStart(e.target.value)}
+                  className="w-full mt-0.5 rounded-lg px-2 py-1.5 text-sm outline-none"
+                  style={{ background: TOKENS.surface, border: `1px solid ${TOKENS.line}`, color: TOKENS.ink }}
+                />
+              </div>
+              <div>
+                <label className="text-[10px]" style={{ color: TOKENS.inkSoft }}>
+                  الوقت
+                </label>
+                <input
+                  type="time"
+                  value={recurTime}
+                  onChange={(e) => setRecurTime(e.target.value)}
+                  className="w-full mt-0.5 rounded-lg px-2 py-1.5 text-sm outline-none"
+                  style={{ background: TOKENS.surface, border: `1px solid ${TOKENS.line}`, color: TOKENS.ink }}
+                />
+              </div>
+              <div>
+                <label className="text-[10px]" style={{ color: TOKENS.inkSoft }}>
+                  التكرار
+                </label>
+                <select
+                  value={recurWeeks}
+                  onChange={(e) => setRecurWeeks(Number(e.target.value))}
+                  className="w-full mt-0.5 rounded-lg px-2 py-1.5 text-sm outline-none"
+                  style={{ background: TOKENS.surface, border: `1px solid ${TOKENS.line}`, color: TOKENS.ink }}
+                >
+                  <option value={1}>كل أسبوع</option>
+                  <option value={2}>كل أسبوعين</option>
+                  <option value={4}>كل شهر</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-[10px]" style={{ color: TOKENS.inkSoft }}>
+                  عدد المرات
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  max={52}
+                  value={recurCount}
+                  onChange={(e) => setRecurCount(Math.max(1, Math.min(52, Number(e.target.value))))}
+                  className="w-full mt-0.5 rounded-lg px-2 py-1.5 text-sm outline-none"
+                  style={{ background: TOKENS.surface, border: `1px solid ${TOKENS.line}`, color: TOKENS.ink }}
+                />
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={generateRecurring}
+              className="w-full rounded-lg py-1.5 text-xs font-bold"
+              style={{ background: TOKENS.gold, color: TOKENS.surface }}
+            >
+              توليد {recurCount} موعد تلقائياً
+            </button>
           </div>
 
           <div>
@@ -410,6 +494,34 @@ export default function MusicTeacherApp() {
       return updated;
     });
     setEditingStudent(null);
+  };
+
+  const exportBackup = () => {
+    const blob = new Blob([JSON.stringify(students, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `نسخة-احتياطية-${todayKey()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const importBackup = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const parsed = JSON.parse(ev.target.result);
+        if (!Array.isArray(parsed)) throw new Error("bad format");
+        setStudents(parsed);
+        persist(parsed);
+      } catch (err) {
+        setSaveError(true);
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = "";
   };
 
   return (
@@ -653,6 +765,22 @@ export default function MusicTeacherApp() {
 
         {tab === "students" && (
           <div className="flex flex-col gap-3">
+            <div className="flex gap-2">
+              <button
+                onClick={exportBackup}
+                className="flex-1 flex items-center justify-center gap-1.5 rounded-xl py-2 text-xs font-bold"
+                style={{ background: TOKENS.surface, border: `1px solid ${TOKENS.line}`, color: TOKENS.ink }}
+              >
+                ⬇️ تحميل نسخة احتياطية
+              </button>
+              <label
+                className="flex-1 flex items-center justify-center gap-1.5 rounded-xl py-2 text-xs font-bold cursor-pointer"
+                style={{ background: TOKENS.surface, border: `1px solid ${TOKENS.line}`, color: TOKENS.ink }}
+              >
+                ⬆️ استعادة نسخة
+                <input type="file" accept="application/json" onChange={importBackup} className="hidden" />
+              </label>
+            </div>
             {students.map((s, i) => (
               <div
                 key={s.id}
