@@ -295,16 +295,6 @@ function EditStudentModal({ student, onClose, onSave }) {
 
 const STORAGE_KEY = "music-studio-students";
 
-export default function MusicTeacherApp() {
-  const [students, setStudents] = useState([]);
-  const [tab, setTab] = useState("dashboard");
-  const [showAdd, setShowAdd] = useState(false);
-  const [editingStudent, setEditingStudent] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [saveError, setSaveError] = useState(false);
-
-const STORAGE_KEY = "music-studio-students";
-
 function loadStudents() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
