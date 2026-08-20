@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from "react";
-import { Music4, Plus, Phone, Check, X, Users, CalendarDays, Wallet, Trash2, Pencil } from "lucide-react";
+import { Music4, Plus, Phone, Check, X, Users, CalendarDays, Wallet, Trash2, Pencil, Clock } from "lucide-react";
 
 const FONT_IMPORT = `@import url('https://fonts.googleapis.com/css2?family=Markazi+Text:wght@500;700&family=Tajawal:wght@400;500;700;800&display=swap');`;
 
@@ -17,22 +17,90 @@ const TOKENS = {
 };
 
 const INSTRUMENTS = ["بيانو", "غيتار", "عود", "كمان", "درامز"];
+// dayOrder[0] = الأحد يطابق JS Date.getDay() === 0، وهكذا لبقية الأيام
+const dayOrder = ["الأحد", "الإثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"];
+
+let slotIdCounter = 1000;
+const newSlotId = () => slotIdCounter++;
 
 const initialStudents = [
-  { id: 1, name: "ليلا حسن", instrument: "بيانو", day: "الإثنين", time: "16:00", phone: "+49 151 000 001", paid: true, note: "وصلت لصفحة 12، تحتاج تتمرن على السلم الكبير" },
-  { id: 2, name: "روژان كمال", instrument: "غيتار", day: "الثلاثاء", time: "17:30", phone: "+49 151 000 002", paid: false, note: "بدها تحضر أغنية جديدة للحفلة" },
-  { id: 3, name: "سيروان أحمد", instrument: "عود", day: "الأربعاء", time: "18:00", phone: "+49 151 000 003", paid: true, note: "" },
-  { id: 4, name: "دلين عمر", instrument: "كمان", day: "الخميس", time: "16:30", phone: "+49 151 000 004", paid: false, note: "أول درس، محتاجة تشتري قوس جديد" },
+  {
+    id: 1,
+    name: "ليلا حسن",
+    instrument: "بيانو",
+    phone: "+49 151 000 001",
+    paid: true,
+    note: "وصلت لصفحة 12، تحتاج تتمرن على السلم الكبير",
+    slots: [
+      { id: newSlotId(), day: "الإثنين", time: "16:00" },
+      { id: newSlotId(), day: "الخميس", time: "17:00" },
+    ],
+  },
+  {
+    id: 2,
+    name: "روژان كمال",
+    instrument: "غيتار",
+    phone: "+49 151 000 002",
+    paid: false,
+    note: "بدها تحضر أغنية جديدة للحفلة",
+    slots: [{ id: newSlotId(), day: "الثلاثاء", time: "17:30" }],
+  },
+  {
+    id: 3,
+    name: "سيروان أحمد",
+    instrument: "عود",
+    phone: "+49 151 000 003",
+    paid: true,
+    note: "",
+    slots: [{ id: newSlotId(), day: "الأربعاء", time: "18:00" }],
+  },
+  {
+    id: 4,
+    name: "دلين عمر",
+    instrument: "كمان",
+    phone: "+49 151 000 004",
+    paid: false,
+    note: "أول درس، محتاجة تشتري قوس جديد",
+    slots: [{ id: newSlotId(), day: "الخميس", time: "16:30" }],
+  },
 ];
-
-const dayOrder = ["الأحد", "الإثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"];
-const today = "الأربعاء";
 
 function timeToY(time) {
   const [h, m] = time.split(":").map(Number);
   const minutesFromNine = (h - 9) * 60 + m;
   const clamped = Math.max(0, Math.min(minutesFromNine, 600));
   return 12 + (clamped / 600) * 176;
+}
+
+// يحول تاريخ إلى نص عربي مقروء: "الأحد، 24 أغسطس"
+const arabicMonths = ["يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو", "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"];
+function formatArabicDate(date) {
+  const dayName = dayOrder[date.getDay()];
+  return `${dayName}، ${date.getDate()} ${arabicMonths[date.getMonth()]}`;
+}
+function dateKey(date) {
+  return date.toISOString().slice(0, 10);
+}
+
+// يولّد كل الدروس القادمة الحقيقية (بتواريخ فعلية) خلال عدد أيام محدد، بناءً على الأيام الأسبوعية المتكررة لكل طالب
+function generateUpcomingLessons(students, daysAhead) {
+  const result = [];
+  const start = new Date();
+  start.setHours(0, 0, 0, 0);
+  for (let i = 0; i < daysAhead; i++) {
+    const date = new Date(start);
+    date.setDate(start.getDate() + i);
+    const weekday = dayOrder[date.getDay()];
+    students.forEach((s) => {
+      (s.slots || []).forEach((slot) => {
+        if (slot.day === weekday) {
+          result.push({ date, student: s, slot });
+        }
+      });
+    });
+  }
+  result.sort((a, b) => a.date - b.date || a.slot.time.localeCompare(b.slot.time));
+  return result;
 }
 
 function StaffLines() {
@@ -78,16 +146,54 @@ function StatCard({ icon: Icon, label, value, accent }) {
   );
 }
 
-function AddStudentModal({ onClose, onAdd }) {
-  const [form, setForm] = useState({ name: "", instrument: INSTRUMENTS[0], day: dayOrder[1], time: "16:00", phone: "" });
+// صف واحد لإدخال يوم + وقت، يُستخدم داخل قائمة المواعيد الأسبوعية للطالب
+function SlotRow({ slot, onChange, onRemove, canRemove }) {
+  return (
+    <div className="flex items-center gap-2">
+      <select
+        value={slot.day}
+        onChange={(e) => onChange({ ...slot, day: e.target.value })}
+        className="flex-1 rounded-xl px-2 py-2 text-sm outline-none"
+        style={{ background: TOKENS.bg, border: `1px solid ${TOKENS.line}`, color: TOKENS.ink }}
+      >
+        {dayOrder.map((d) => (
+          <option key={d}>{d}</option>
+        ))}
+      </select>
+      <input
+        type="time"
+        value={slot.time}
+        onChange={(e) => onChange({ ...slot, time: e.target.value })}
+        className="rounded-xl px-2 py-2 text-sm outline-none"
+        style={{ background: TOKENS.bg, border: `1px solid ${TOKENS.line}`, color: TOKENS.ink }}
+      />
+      {canRemove && (
+        <button type="button" onClick={onRemove} className="shrink-0">
+          <X size={16} color={TOKENS.rust} />
+        </button>
+      )}
+    </div>
+  );
+}
+
+function StudentForm({ initial, onCancel, onSubmit, submitLabel, title }) {
+  const [form, setForm] = useState(
+    initial || { name: "", instrument: INSTRUMENTS[0], phone: "", note: "", paid: false, slots: [{ id: newSlotId(), day: dayOrder[1], time: "16:00" }] }
+  );
+
+  const updateSlot = (id, updated) =>
+    setForm({ ...form, slots: form.slots.map((sl) => (sl.id === id ? updated : sl)) });
+  const removeSlot = (id) => setForm({ ...form, slots: form.slots.filter((sl) => sl.id !== id) });
+  const addSlot = () => setForm({ ...form, slots: [...form.slots, { id: newSlotId(), day: dayOrder[1], time: "16:00" }] });
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "#2B2118AA" }}>
-      <div className="w-full max-w-sm rounded-3xl p-6" style={{ background: TOKENS.surface, fontFamily: "Tajawal" }}>
+      <div className="w-full max-w-sm rounded-3xl p-6 max-h-[90vh] overflow-y-auto" style={{ background: TOKENS.surface, fontFamily: "Tajawal" }}>
         <div className="flex items-center justify-between mb-5">
           <h3 className="text-lg font-bold" style={{ color: TOKENS.ink }}>
-            إضافة طالب جديد
+            {title}
           </h3>
-          <button onClick={onClose} className="rounded-full p-1.5" style={{ background: TOKENS.surfaceAlt }}>
+          <button onClick={onCancel} className="rounded-full p-1.5" style={{ background: TOKENS.surfaceAlt }}>
             <X size={16} color={TOKENS.ink} />
           </button>
         </div>
@@ -122,35 +228,6 @@ function AddStudentModal({ onClose, onAdd }) {
             </div>
             <div>
               <label className="text-xs" style={{ color: TOKENS.inkSoft }}>
-                اليوم
-              </label>
-              <select
-                value={form.day}
-                onChange={(e) => setForm({ ...form, day: e.target.value })}
-                className="w-full mt-1 rounded-xl px-3 py-2 outline-none"
-                style={{ background: TOKENS.bg, border: `1px solid ${TOKENS.line}`, color: TOKENS.ink }}
-              >
-                {dayOrder.map((d) => (
-                  <option key={d}>{d}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs" style={{ color: TOKENS.inkSoft }}>
-                الوقت
-              </label>
-              <input
-                type="time"
-                value={form.time}
-                onChange={(e) => setForm({ ...form, time: e.target.value })}
-                className="w-full mt-1 rounded-xl px-3 py-2 outline-none"
-                style={{ background: TOKENS.bg, border: `1px solid ${TOKENS.line}`, color: TOKENS.ink }}
-              />
-            </div>
-            <div>
-              <label className="text-xs" style={{ color: TOKENS.inkSoft }}>
                 رقم واتساب
               </label>
               <input
@@ -163,109 +240,37 @@ function AddStudentModal({ onClose, onAdd }) {
               />
             </div>
           </div>
-          <button
-            onClick={() => {
-              if (!form.name.trim()) return;
-              onAdd({ ...form, id: Date.now(), paid: false, note: "" });
-              onClose();
-            }}
-            className="mt-2 rounded-xl py-2.5 font-bold"
-            style={{ background: TOKENS.gold, color: TOKENS.surface }}
-          >
-            حفظ الطالب
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
 
-function EditStudentModal({ student, onClose, onSave }) {
-  const [form, setForm] = useState({ ...student });
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "#2B2118AA" }}>
-      <div className="w-full max-w-sm rounded-3xl p-6" style={{ background: TOKENS.surface, fontFamily: "Tajawal" }}>
-        <div className="flex items-center justify-between mb-5">
-          <h3 className="text-lg font-bold" style={{ color: TOKENS.ink }}>
-            تعديل بيانات {student.name}
-          </h3>
-          <button onClick={onClose} className="rounded-full p-1.5" style={{ background: TOKENS.surfaceAlt }}>
-            <X size={16} color={TOKENS.ink} />
-          </button>
-        </div>
-        <div className="flex flex-col gap-3">
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-xs" style={{ color: TOKENS.inkSoft }}>
+                المواعيد الأسبوعية (يقدر يكون أكثر من موعد)
+              </label>
+              <button
+                type="button"
+                onClick={addSlot}
+                className="flex items-center gap-1 text-xs font-bold rounded-full px-2 py-1"
+                style={{ background: TOKENS.gold + "22", color: TOKENS.gold }}
+              >
+                <Plus size={12} /> إضافة موعد
+              </button>
+            </div>
+            <div className="flex flex-col gap-2">
+              {form.slots.map((slot) => (
+                <SlotRow
+                  key={slot.id}
+                  slot={slot}
+                  onChange={(updated) => updateSlot(slot.id, updated)}
+                  onRemove={() => removeSlot(slot.id)}
+                  canRemove={form.slots.length > 1}
+                />
+              ))}
+            </div>
+          </div>
+
           <div>
             <label className="text-xs" style={{ color: TOKENS.inkSoft }}>
-              اسم الطالب
-            </label>
-            <input
-              value={form.name}
-              onChange={(e) => setForm({ ...form, name: e.target.value })}
-              className="w-full mt-1 rounded-xl px-3 py-2 outline-none"
-              style={{ background: TOKENS.bg, border: `1px solid ${TOKENS.line}`, color: TOKENS.ink }}
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs" style={{ color: TOKENS.inkSoft }}>
-                الآلة
-              </label>
-              <select
-                value={form.instrument}
-                onChange={(e) => setForm({ ...form, instrument: e.target.value })}
-                className="w-full mt-1 rounded-xl px-3 py-2 outline-none"
-                style={{ background: TOKENS.bg, border: `1px solid ${TOKENS.line}`, color: TOKENS.ink }}
-              >
-                {INSTRUMENTS.map((i) => (
-                  <option key={i}>{i}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="text-xs" style={{ color: TOKENS.inkSoft }}>
-                اليوم
-              </label>
-              <select
-                value={form.day}
-                onChange={(e) => setForm({ ...form, day: e.target.value })}
-                className="w-full mt-1 rounded-xl px-3 py-2 outline-none"
-                style={{ background: TOKENS.bg, border: `1px solid ${TOKENS.line}`, color: TOKENS.ink }}
-              >
-                {dayOrder.map((d) => (
-                  <option key={d}>{d}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs" style={{ color: TOKENS.inkSoft }}>
-                الوقت
-              </label>
-              <input
-                type="time"
-                value={form.time}
-                onChange={(e) => setForm({ ...form, time: e.target.value })}
-                className="w-full mt-1 rounded-xl px-3 py-2 outline-none"
-                style={{ background: TOKENS.bg, border: `1px solid ${TOKENS.line}`, color: TOKENS.ink }}
-              />
-            </div>
-            <div>
-              <label className="text-xs" style={{ color: TOKENS.inkSoft }}>
-                رقم واتساب
-              </label>
-              <input
-                value={form.phone}
-                onChange={(e) => setForm({ ...form, phone: e.target.value })}
-                className="w-full mt-1 rounded-xl px-3 py-2 outline-none"
-                style={{ background: TOKENS.bg, border: `1px solid ${TOKENS.line}`, color: TOKENS.ink }}
-                dir="ltr"
-              />
-            </div>
-          </div>
-          <div>
-            <label className="text-xs" style={{ color: TOKENS.inkSoft }}>
-              ملاحظة الدرس
+              ملاحظة
             </label>
             <textarea
               value={form.note}
@@ -276,16 +281,16 @@ function EditStudentModal({ student, onClose, onSave }) {
               placeholder="مثال: وصلنا لصفحة 12، يحتاج يتمرن على السلم الكبير"
             />
           </div>
+
           <button
             onClick={() => {
-              if (!form.name.trim()) return;
-              onSave(form);
-              onClose();
+              if (!form.name.trim() || form.slots.length === 0) return;
+              onSubmit(form);
             }}
             className="mt-2 rounded-xl py-2.5 font-bold"
             style={{ background: TOKENS.gold, color: TOKENS.surface }}
           >
-            حفظ التعديلات
+            {submitLabel}
           </button>
         </div>
       </div>
@@ -293,7 +298,7 @@ function EditStudentModal({ student, onClose, onSave }) {
   );
 }
 
-const STORAGE_KEY = "music-studio-students";
+const STORAGE_KEY = "music-studio-students-v2";
 
 function loadStudents() {
   try {
@@ -310,8 +315,8 @@ export default function MusicTeacherApp() {
   const [showAdd, setShowAdd] = useState(false);
   const [editingStudent, setEditingStudent] = useState(null);
   const [saveError, setSaveError] = useState(false);
+  const [rangeDays, setRangeDays] = useState(30);
 
-  // حفظ أي تغيير فوراً بمتصفح الجهاز نفسه
   const persist = (updated) => {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
@@ -321,10 +326,26 @@ export default function MusicTeacherApp() {
     }
   };
 
-  const todaysLessons = useMemo(
-    () => students.filter((s) => s.day === today).sort((a, b) => a.time.localeCompare(b.time)),
-    [students]
-  );
+  const today = dayOrder[new Date().getDay()];
+
+  const todaysLessons = useMemo(() => {
+    const list = [];
+    students.forEach((s) => (s.slots || []).forEach((slot) => {
+      if (slot.day === today) list.push({ ...slot, student: s });
+    }));
+    return list.sort((a, b) => a.time.localeCompare(b.time));
+  }, [students, today]);
+
+  const upcoming = useMemo(() => generateUpcomingLessons(students, rangeDays), [students, rangeDays]);
+  const upcomingByDate = useMemo(() => {
+    const map = new Map();
+    upcoming.forEach((item) => {
+      const key = dateKey(item.date);
+      if (!map.has(key)) map.set(key, { date: item.date, items: [] });
+      map.get(key).items.push(item);
+    });
+    return Array.from(map.values());
+  }, [upcoming]);
 
   const unpaidCount = students.filter((s) => !s.paid).length;
   const palette = [TOKENS.gold, TOKENS.sage, TOKENS.rust, TOKENS.goldSoft];
@@ -343,30 +364,41 @@ export default function MusicTeacherApp() {
       return updated;
     });
   };
-  const addStudent = (student) => {
+  const addStudent = (form) => {
     setStudents((s) => {
-      const updated = [...s, student];
+      const updated = [...s, { ...form, id: Date.now(), paid: false }];
       persist(updated);
       return updated;
     });
+    setShowAdd(false);
   };
-  const updateStudent = (edited) => {
+  const updateStudent = (form) => {
     setStudents((s) => {
-      const updated = s.map((st) => (st.id === edited.id ? { ...edited } : st));
+      const updated = s.map((st) => (st.id === form.id ? { ...form } : st));
       persist(updated);
       return updated;
     });
+    setEditingStudent(null);
   };
 
   return (
     <div dir="rtl" className="min-h-screen w-full" style={{ background: TOKENS.bg, fontFamily: "Tajawal" }}>
       <style>{FONT_IMPORT}</style>
-      {showAdd && <AddStudentModal onClose={() => setShowAdd(false)} onAdd={addStudent} />}
+      {showAdd && (
+        <StudentForm
+          title="إضافة طالب جديد"
+          submitLabel="حفظ الطالب"
+          onCancel={() => setShowAdd(false)}
+          onSubmit={addStudent}
+        />
+      )}
       {editingStudent && (
-        <EditStudentModal
-          student={editingStudent}
-          onClose={() => setEditingStudent(null)}
-          onSave={updateStudent}
+        <StudentForm
+          title={`تعديل بيانات ${editingStudent.name}`}
+          submitLabel="حفظ التعديلات"
+          initial={editingStudent}
+          onCancel={() => setEditingStudent(null)}
+          onSubmit={updateStudent}
         />
       )}
       {saveError && (
@@ -375,7 +407,6 @@ export default function MusicTeacherApp() {
         </div>
       )}
 
-      {/* Header */}
       <header className="px-5 pt-6 pb-4 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="rounded-2xl p-2.5" style={{ background: TOKENS.ink }}>
@@ -386,7 +417,7 @@ export default function MusicTeacherApp() {
               أستوديو النغم
             </div>
             <div className="text-xs" style={{ color: TOKENS.inkSoft }}>
-              مرحباً أ. سردار — {today}
+              مرحباً أ. سردار — {formatArabicDate(new Date())}
             </div>
           </div>
         </div>
@@ -400,11 +431,10 @@ export default function MusicTeacherApp() {
         </button>
       </header>
 
-      {/* Tabs */}
-      <nav className="px-5 flex gap-2 mb-5">
+      <nav className="px-5 flex gap-2 mb-5 flex-wrap">
         {[
           { id: "dashboard", label: "لوحة القيادة", icon: CalendarDays },
-          { id: "week", label: "الأسبوع", icon: CalendarDays },
+          { id: "upcoming", label: "الجدول القادم", icon: Clock },
           { id: "students", label: "الطلاب", icon: Users },
         ].map((t) => (
           <button
@@ -474,150 +504,138 @@ export default function MusicTeacherApp() {
                         color: TOKENS.ink,
                       }}
                     >
-                      {s.name}
+                      {s.student.name}
                       <span className="block font-normal" style={{ color: TOKENS.inkSoft }}>
-                        {s.time} · {s.instrument}
+                        {s.time} · {s.student.instrument}
                       </span>
                     </div>
                   ))}
                 </div>
               )}
             </div>
-
-            <div className="rounded-3xl p-5" style={{ background: TOKENS.surface, border: `1px solid ${TOKENS.line}` }}>
-              <h2 className="font-extrabold mb-3" style={{ color: TOKENS.ink }}>
-                تذكيرات واتساب المرسلة تلقائياً
-              </h2>
-              <div className="flex flex-col gap-2">
-                {todaysLessons.slice(0, 3).map((s) => (
-                  <div key={s.id} className="flex items-center gap-2 text-sm rounded-xl px-3 py-2" style={{ background: TOKENS.bg }}>
-                    <Check size={14} color={TOKENS.sage} />
-                    <span style={{ color: TOKENS.ink }}>
-                      تم إرسال تذكير لـ <b>{s.name}</b> — درس الساعة {s.time}
-                    </span>
-                  </div>
-                ))}
-                {todaysLessons.length === 0 && (
-                  <span className="text-sm" style={{ color: TOKENS.inkSoft }}>
-                    ما في تذكيرات لليوم
-                  </span>
-                )}
-              </div>
-            </div>
           </div>
         )}
 
-        {tab === "week" && (
-          <div className="flex flex-col gap-3">
-            {dayOrder.map((day) => {
-              const dayLessons = students
-                .filter((s) => s.day === day)
-                .sort((a, b) => a.time.localeCompare(b.time));
-              const isToday = day === today;
-              return (
-                <div
-                  key={day}
-                  className="rounded-2xl p-4"
+        {tab === "upcoming" && (
+          <div className="flex flex-col gap-4">
+            <div className="flex gap-2">
+              {[
+                { v: 30, l: "30 يوم" },
+                { v: 90, l: "90 يوم" },
+                { v: 365, l: "سنة كاملة" },
+              ].map((r) => (
+                <button
+                  key={r.v}
+                  onClick={() => setRangeDays(r.v)}
+                  className="rounded-full px-3 py-1.5 text-xs font-bold"
                   style={{
-                    background: isToday ? TOKENS.ink : TOKENS.surface,
-                    border: `1px solid ${TOKENS.line}`,
+                    background: rangeDays === r.v ? TOKENS.gold : TOKENS.surface,
+                    color: rangeDays === r.v ? TOKENS.surface : TOKENS.inkSoft,
+                    border: `1px solid ${rangeDays === r.v ? TOKENS.gold : TOKENS.line}`,
                   }}
                 >
-                  <div className="flex items-center justify-between mb-2">
-                    <span
-                      className="font-extrabold text-sm"
-                      style={{ color: isToday ? TOKENS.gold : TOKENS.ink }}
-                    >
-                      {day} {isToday && "· اليوم"}
-                    </span>
-                    <span className="text-xs" style={{ color: isToday ? TOKENS.surfaceAlt : TOKENS.inkSoft }}>
-                      {dayLessons.length} {dayLessons.length === 1 ? "درس" : "دروس"}
-                    </span>
+                  {r.l}
+                </button>
+              ))}
+            </div>
+
+            {upcomingByDate.length === 0 ? (
+              <div className="text-center py-10 rounded-2xl" style={{ background: TOKENS.surface, color: TOKENS.inkSoft }}>
+                ما في دروس مجدولة بهالمدى
+              </div>
+            ) : (
+              upcomingByDate.map(({ date, items }) => (
+                <div key={dateKey(date)} className="rounded-2xl p-4" style={{ background: TOKENS.surface, border: `1px solid ${TOKENS.line}` }}>
+                  <div className="font-extrabold text-sm mb-2" style={{ color: TOKENS.ink }}>
+                    {formatArabicDate(date)}
                   </div>
-                  {dayLessons.length === 0 ? (
-                    <div className="text-xs" style={{ color: isToday ? TOKENS.surfaceAlt : TOKENS.inkSoft }}>
-                      لا يوجد دروس
-                    </div>
-                  ) : (
-                    <div className="flex flex-col gap-1.5">
-                      {dayLessons.map((s) => (
-                        <div
-                          key={s.id}
-                          className="flex items-center justify-between text-sm rounded-xl px-3 py-2"
-                          style={{ background: isToday ? "#00000022" : TOKENS.bg }}
-                        >
-                          <span style={{ color: isToday ? TOKENS.surface : TOKENS.ink }}>
-                            {s.time} — {s.name}
-                          </span>
-                          <span className="text-xs" style={{ color: isToday ? TOKENS.surfaceAlt : TOKENS.inkSoft }}>
-                            {s.instrument}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
+                  <div className="flex flex-col gap-1.5">
+                    {items.map((item, idx) => (
+                      <div
+                        key={item.student.id + "-" + item.slot.id + "-" + idx}
+                        className="flex items-center justify-between text-sm rounded-xl px-3 py-2"
+                        style={{ background: TOKENS.bg }}
+                      >
+                        <span style={{ color: TOKENS.ink }}>
+                          {item.slot.time} — {item.student.name}
+                        </span>
+                        <span className="text-xs" style={{ color: TOKENS.inkSoft }}>
+                          {item.student.instrument}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              );
-            })}
+              ))
+            )}
           </div>
         )}
 
         {tab === "students" && (
           <div className="flex flex-col gap-3">
-            {dayOrder
-              .flatMap((day) => students.filter((s) => s.day === day))
-              .map((s, i) => (
-                <div
-                  key={s.id}
-                  className="rounded-2xl p-4 flex items-start gap-3"
-                  style={{ background: TOKENS.surface, border: `1px solid ${TOKENS.line}` }}
-                >
-                  <Avatar name={s.name} color={palette[i % palette.length]} />
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between">
-                      <div className="font-bold" style={{ color: TOKENS.ink }}>
-                        {s.name}
-                      </div>
-                      <button onClick={() => removeStudent(s.id)}>
-                        <Trash2 size={15} color={TOKENS.inkSoft} />
-                      </button>
+            {students.map((s, i) => (
+              <div
+                key={s.id}
+                className="rounded-2xl p-4 flex items-start gap-3"
+                style={{ background: TOKENS.surface, border: `1px solid ${TOKENS.line}` }}
+              >
+                <Avatar name={s.name} color={palette[i % palette.length]} />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between">
+                    <div className="font-bold" style={{ color: TOKENS.ink }}>
+                      {s.name}
                     </div>
-                    <div className="flex items-center gap-2 text-xs mt-0.5" style={{ color: TOKENS.inkSoft }}>
-                      <span>{s.instrument} · {s.day} {s.time}</span>
-                      <button
-                        onClick={() => setEditingStudent(s)}
-                        className="flex items-center gap-1 rounded-full px-2 py-0.5"
-                        style={{ background: TOKENS.bg, color: TOKENS.gold }}
+                    <button onClick={() => removeStudent(s.id)}>
+                      <Trash2 size={15} color={TOKENS.inkSoft} />
+                    </button>
+                  </div>
+                  <div className="text-xs mt-0.5" style={{ color: TOKENS.inkSoft }}>
+                    {s.instrument}
+                  </div>
+                  <div className="flex flex-wrap gap-1.5 mt-1.5">
+                    {(s.slots || []).map((slot) => (
+                      <span
+                        key={slot.id}
+                        className="text-xs rounded-full px-2 py-0.5"
+                        style={{ background: TOKENS.bg, color: TOKENS.ink }}
                       >
-                        <Pencil size={11} />
-                        تعديل
-                      </button>
+                        {slot.day} {slot.time}
+                      </span>
+                    ))}
+                    <button
+                      onClick={() => setEditingStudent(s)}
+                      className="flex items-center gap-1 rounded-full px-2 py-0.5 text-xs"
+                      style={{ background: TOKENS.gold + "22", color: TOKENS.gold }}
+                    >
+                      <Pencil size={11} />
+                      تعديل
+                    </button>
+                  </div>
+                  {s.note && (
+                    <div className="text-xs mt-1.5 rounded-lg px-2 py-1" style={{ background: TOKENS.bg, color: TOKENS.inkSoft }}>
+                      {s.note}
                     </div>
-                    {s.note && (
-                      <div className="text-xs mt-1.5 rounded-lg px-2 py-1" style={{ background: TOKENS.bg, color: TOKENS.inkSoft }}>
-                        {s.note}
-                      </div>
-                    )}
-                    <div className="flex items-center justify-between mt-2.5">
-                      <div className="flex items-center gap-1 text-xs" style={{ color: TOKENS.inkSoft }} dir="ltr">
-                        <Phone size={12} />
-                        {s.phone}
-                      </div>
-                      <button
-                        onClick={() => togglePaid(s.id)}
-                        className="flex items-center gap-1 rounded-full px-3 py-1 text-xs font-bold"
-                        style={{
-                          background: s.paid ? TOKENS.sage + "22" : TOKENS.rust + "22",
-                          color: s.paid ? TOKENS.sage : TOKENS.rust,
-                        }}
-                      >
-                        {s.paid ? <Check size={12} /> : <X size={12} />}
-                        {s.paid ? "تم الدفع" : "لم يُدفع"}
-                      </button>
+                  )}
+                  <div className="flex items-center justify-between mt-2.5">
+                    <div className="flex items-center gap-1 text-xs" style={{ color: TOKENS.inkSoft }} dir="ltr">
+                      <Phone size={12} />
+                      {s.phone}
                     </div>
+                    <button
+                      onClick={() => togglePaid(s.id)}
+                      className="flex items-center gap-1 rounded-full px-3 py-1 text-xs font-bold"
+                      style={{
+                        background: s.paid ? TOKENS.sage + "22" : TOKENS.rust + "22",
+                        color: s.paid ? TOKENS.sage : TOKENS.rust,
+                      }}
+                    >
+                      {s.paid ? <Check size={12} /> : <X size={12} />}
+                      {s.paid ? "تم الدفع" : "لم يُدفع"}
+                    </button>
                   </div>
                 </div>
-              ))}
+              </div>
+            ))}
           </div>
         )}
       </main>
